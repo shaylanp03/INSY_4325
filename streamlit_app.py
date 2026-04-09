@@ -75,7 +75,7 @@ if uploaded:
             for name, info in results.items():
                 pred = info["model"].predict(X_test)
                 r2 = r2_score(y_test, pred)
-                rmse = mean_squared_error(y_test, pred, squared=False)
+                rmse = np.sqrt(mean_squared_error(y_test, pred))
                 mae = mean_absolute_error(y_test, pred)
                 metrics.append((name, r2, rmse, mae, info["time"]))
             dfm = pd.DataFrame(metrics, columns=["Model", "R2", "RMSE", "MAE", "Train time (s)"])

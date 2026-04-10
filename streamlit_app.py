@@ -9,25 +9,25 @@ import plotly.express as px
 import plotly.graph_objects as go
 import joblib
 import time
- 
+
 # ── Page config ────────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="AI Real Estate Analytics",
     layout="wide",
     initial_sidebar_state="expanded",
 )
- 
+
 # ── Global CSS ─────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
- 
+
 html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
- 
+
 #MainMenu {visibility: hidden;}
 footer    {visibility: hidden;}
 header    {visibility: hidden;}
- 
+
 [data-testid="stSidebar"] {
     background-color: #ffffff;
     border-right: 1px solid #e5e7eb;
@@ -35,9 +35,9 @@ header    {visibility: hidden;}
     max-width: 220px !important;
 }
 [data-testid="stSidebar"] .block-container { padding: 1.5rem 1rem; }
- 
+
 .main .block-container { padding: 2rem 2.5rem; max-width: 960px; }
- 
+
 .metric-card {
     background: #fff; border: 1px solid #e5e7eb; border-radius: 10px;
     padding: 1rem 1.2rem; position: relative; margin-bottom: 1rem;
@@ -51,15 +51,15 @@ header    {visibility: hidden;}
     width: 32px; height: 32px; border-radius: 8px;
     display: flex; align-items: center; justify-content: center; font-size: 1rem;
 }
- 
+
 .page-title   { font-size: 1.6rem; font-weight: 700; color: #111827; margin-bottom: 2px; }
 .page-subtitle{ font-size: 0.9rem; color: #6b7280; margin-bottom: 1.5rem; }
- 
+
 .card {
     background: #fff; border: 1px solid #e5e7eb; border-radius: 12px;
     padding: 1.5rem; margin-bottom: 1.2rem;
 }
- 
+
 .feature-card {
     background: #fff; border: 1px solid #e5e7eb; border-radius: 12px;
     padding: 1.4rem; height: 100%;
@@ -69,48 +69,48 @@ header    {visibility: hidden;}
     display: flex; align-items: center; justify-content: center;
     font-size: 1.2rem; margin-bottom: 0.8rem;
 }
- 
+
 .tag {
     display: inline-block; background: #f3f4f6; color: #374151;
     border-radius: 6px; padding: 2px 10px; font-size: 0.75rem;
     margin-right: 6px; margin-top: 4px;
 }
- 
+
 .best-banner {
     background: #fffbeb; border: 1px solid #fcd34d;
     border-radius: 10px; padding: 1.2rem 1.5rem; margin-bottom: 1.2rem;
 }
- 
+
 .pred-result {
     background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
     color: #fff; border-radius: 12px; padding: 1.5rem 2rem;
     text-align: center; margin: 1rem 0;
 }
 .pred-result .amount { font-size: 2.2rem; font-weight: 700; }
- 
+
 .pred-row {
     display: flex; justify-content: space-between; align-items: center;
     padding: 0.8rem 0; border-bottom: 1px solid #f3f4f6;
 }
 .pred-row:last-child { border-bottom: none; }
 .pred-row .price { font-size: 1.1rem; font-weight: 700; color: #10b981; }
- 
+
 .insight-card {
     background: #f0fdf4; border: 1px solid #bbf7d0;
     border-radius: 10px; padding: 1rem 1.2rem; height: 100%;
 }
- 
+
 .stat-row {
     display: flex; justify-content: space-between;
     padding: 4px 0; font-size: 0.88rem; border-bottom: 1px solid #f3f4f6;
 }
 .stat-row:last-child { border-bottom: none; }
- 
+
 .upload-area {
     border: 2px dashed #d1d5db; border-radius: 12px;
     padding: 3rem; text-align: center; background: #fafafa; margin-bottom: 1.2rem;
 }
- 
+
 .info-bar {
     background: #f8fafc; border: 1px solid #e2e8f0;
     border-radius: 8px; padding: 0.6rem 1rem;
@@ -118,7 +118,7 @@ header    {visibility: hidden;}
 }
 </style>
 """, unsafe_allow_html=True)
- 
+
 # ── Session state defaults ──────────────────────────────────────────────────────
 for key, val in {
     "page": "Home", "df": None, "df_clean": None,
@@ -132,7 +132,7 @@ for key, val in {
 }.items():
     if key not in st.session_state:
         st.session_state[key] = val
- 
+
 # ── Sidebar navigation ─────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("""
@@ -141,7 +141,7 @@ with st.sidebar:
         <div style="font-size:0.75rem;color:#6b7280;">Predictive Analytics Platform</div>
     </div>
     """, unsafe_allow_html=True)
- 
+
     for icon, name in [
         ("🏠","Home"),("📤","Data Upload"),("🧹","Data Cleaning"),
         ("🎯","Model Training"),("📊","Model Comparison"),
@@ -150,7 +150,7 @@ with st.sidebar:
         if st.button(f"{icon}  {name}", key=f"nav_{name}", use_container_width=True):
             st.session_state.page = name
             st.rerun()
- 
+
 # ── Helpers ────────────────────────────────────────────────────────────────────
 def make_demo_df(n=500):
     np.random.seed(42)
@@ -175,7 +175,7 @@ def make_demo_df(n=500):
         idx = np.random.choice(df.index, size=int(n * 0.02), replace=False)
         df.loc[idx, col] = np.nan
     return df
- 
+
 def pricing_algorithm(row):
     base          = 200 * row.get("sqft_living", 1000)
     bedrooms_adj  = (row.get("bedrooms", 2) - 2) * 5000
@@ -187,7 +187,7 @@ def pricing_algorithm(row):
     renov_bonus   = 1.05 if row.get("yr_renovated", 0) > 0 else 1.0
     price         = (base + bedrooms_adj + baths_adj) * grade_mul * waterfront_mul * age_dep * renov_bonus
     return price * np.random.uniform(0.97, 1.03)
- 
+
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE: HOME
 # ══════════════════════════════════════════════════════════════════════════════
@@ -202,15 +202,15 @@ if st.session_state.page == "Home":
         </p>
     </div>
     """, unsafe_allow_html=True)
- 
+
     _, mid, _ = st.columns([1, 2, 1])
     with mid:
         if st.button("🚀  Get Started →", use_container_width=True, type="primary"):
             st.session_state.page = "Data Upload"
             st.rerun()
- 
+
     st.markdown("<br>", unsafe_allow_html=True)
- 
+
     st.markdown("""
     <div class="card">
         <h3 style="font-size:1.1rem;font-weight:700;color:#111827;margin-bottom:0.8rem;">Problem Domain</h3>
@@ -233,7 +233,7 @@ if st.session_state.page == "Home":
         </p>
     </div>
     """, unsafe_allow_html=True)
- 
+
     c1, c2, c3 = st.columns(3)
     for col, icon, bg, title, desc in [
         (c1, "🗄️", "#eff6ff", "Data Processing",
@@ -250,7 +250,7 @@ if st.session_state.page == "Home":
             <div style="font-size:0.82rem;color:#6b7280;">{desc}</div>
         </div>
         """, unsafe_allow_html=True)
- 
+
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown("""
     <div class="card">
@@ -276,17 +276,17 @@ if st.session_state.page == "Home":
         </div>
     </div>
     """, unsafe_allow_html=True)
- 
- 
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE: DATA UPLOAD
 # ══════════════════════════════════════════════════════════════════════════════
 elif st.session_state.page == "Data Upload":
     st.markdown('<div class="page-title">Data Upload & Management</div>', unsafe_allow_html=True)
     st.markdown('<div class="page-subtitle">Upload your real estate dataset from Kaggle (CSV format)</div>', unsafe_allow_html=True)
- 
+
     uploaded = st.file_uploader("Upload CSV", type=["csv"], label_visibility="collapsed")
- 
+
     if uploaded:
         df = pd.read_csv(uploaded)
         st.session_state.df = df
@@ -304,7 +304,7 @@ elif st.session_state.page == "Data Upload":
             st.session_state.df = make_demo_df()
             st.success("Demo dataset loaded!")
             st.rerun()
- 
+
     st.markdown("""
     <div class="card">
         <div style="font-weight:700;font-size:0.95rem;margin-bottom:0.8rem;">Required Data Format</div>
@@ -324,26 +324,26 @@ elif st.session_state.page == "Data Upload":
         </div>
     </div>
     """, unsafe_allow_html=True)
- 
- 
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE: DATA CLEANING
 # ══════════════════════════════════════════════════════════════════════════════
 elif st.session_state.page == "Data Cleaning":
     st.markdown('<div class="page-title">Data Cleaning & Visualization</div>', unsafe_allow_html=True)
     st.markdown('<div class="page-subtitle">Preprocess and explore your real estate dataset</div>', unsafe_allow_html=True)
- 
+
     df = st.session_state.df if st.session_state.df is not None else make_demo_df()
     if st.session_state.df is None:
         st.session_state.df = df
- 
+
     total_rows   = len(df)
     missing_vals = int(df.isna().sum().sum())
     missing_pct  = missing_vals / (df.shape[0] * df.shape[1]) * 100
     duplicates   = int(df.duplicated().sum())
     num_df       = df.select_dtypes(include=[np.number])
     outliers     = int(((num_df - num_df.mean()).abs() > 3 * num_df.std()).sum().sum())
- 
+
     c1, c2, c3, c4 = st.columns(4)
     for col, label, val, icon, bg in [
         (c1, "Total Rows",     f"{total_rows:,}",                    "✅", "#d1fae5"),
@@ -356,7 +356,7 @@ elif st.session_state.page == "Data Cleaning":
             <div class="metric-value">{val}</div>
             <div class="metric-icon" style="background:{bg};">{icon}</div>
         </div>""", unsafe_allow_html=True)
- 
+
     st.markdown("<br>", unsafe_allow_html=True)
     with st.container():
         st.markdown("**Cleaning Techniques**")
@@ -365,7 +365,7 @@ elif st.session_state.page == "Data Cleaning":
         remove_out  = st.checkbox("Remove outliers using IQR method", value=True)
         normalize   = st.checkbox("Normalize numerical features", value=True)
         encode_cat  = st.checkbox("Encode categorical variables", value=True)
- 
+
         if st.button("🧹  Apply Cleaning", type="primary"):
             df_c = df.copy()
             if remove_dups:
@@ -380,10 +380,10 @@ elif st.session_state.page == "Data Cleaning":
                     df_c = df_c[(df_c[c] >= q1 - 1.5 * iqr) & (df_c[c] <= q3 + 1.5 * iqr)]
             st.session_state.df_clean = df_c
             st.success(f"✅ Cleaning complete — {len(df_c):,} rows remaining")
- 
+
     st.markdown("<br>", unsafe_allow_html=True)
     df_plot = st.session_state.df_clean if st.session_state.df_clean is not None else df
- 
+
     col_a, col_b = st.columns(2)
     with col_a:
         miss_by_col = df_plot.isna().sum()
@@ -400,7 +400,7 @@ elif st.session_state.page == "Data Cleaning":
             st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("No missing values.")
- 
+
     with col_b:
         if "price" in df_plot.columns:
             bins   = [0, 200000, 400000, 600000, 800000, df_plot["price"].max()+1]
@@ -413,7 +413,7 @@ elif st.session_state.page == "Data Cleaning":
             fig2.update_xaxes(showgrid=False)
             fig2.update_yaxes(showgrid=True, gridcolor="#f3f4f6")
             st.plotly_chart(fig2, use_container_width=True)
- 
+
     col_c, col_d = st.columns(2)
     with col_c:
         if "price" in df_plot.columns:
@@ -427,7 +427,7 @@ elif st.session_state.page == "Data Cleaning":
             fig3.update_xaxes(showgrid=True, gridcolor="#f3f4f6", range=[0,1])
             fig3.update_yaxes(showgrid=False)
             st.plotly_chart(fig3, use_container_width=True)
- 
+
     with col_d:
         if "price" in df_plot.columns:
             stats = {
@@ -449,15 +449,15 @@ elif st.session_state.page == "Data Cleaning":
                 <div class="card" style="margin-top:0;">{rows_html}</div>
             </div>
             """, unsafe_allow_html=True)
- 
- 
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE: MODEL TRAINING
 # ══════════════════════════════════════════════════════════════════════════════
 elif st.session_state.page == "Model Training":
     st.markdown('<div class="page-title">Model Training</div>', unsafe_allow_html=True)
     st.markdown('<div class="page-subtitle">Train and evaluate 3 different machine learning algorithms</div>', unsafe_allow_html=True)
- 
+
     col1, col2, col3 = st.columns(3)
     with col1:
         split_opt = st.selectbox("Train/Test Split", ["80% / 20%","70% / 30%","75% / 25%"])
@@ -465,12 +465,12 @@ elif st.session_state.page == "Model Training":
         cv_folds = st.selectbox("Cross-Validation Folds", ["5-Fold","3-Fold","10-Fold"])
     with col3:
         random_seed = st.number_input("Random Seed", value=42, step=1)
- 
+
     test_size = {"80% / 20%": 0.2, "70% / 30%": 0.3, "75% / 25%": 0.25}[split_opt]
- 
+
     st.markdown("<br>", unsafe_allow_html=True)
     train_all = st.button("🎯  Train All Models", type="primary")
- 
+
     for icon, bg, name, desc, tags in [
         ("📘","#eff6ff","Linear Regression","Simple yet powerful algorithm for linear relationships",
          ["Regularization: L2","Learning Rate: 0.01","Max Iterations: 1000"]),
@@ -493,9 +493,14 @@ elif st.session_state.page == "Model Training":
             </div>
         </div>
         """, unsafe_allow_html=True)
- 
+
     if train_all:
-        df = (st.session_state.df_clean or st.session_state.df or make_demo_df())
+        if st.session_state.df_clean is not None:
+            df = st.session_state.df_clean
+        elif st.session_state.df is not None:
+            df = st.session_state.df
+        else:
+            df = make_demo_df()
         if "price" not in df.columns:
             st.error("Dataset must have a 'price' column.")
         else:
@@ -529,15 +534,15 @@ elif st.session_state.page == "Model Training":
             st.session_state.best_model_name= dfm.iloc[0]["Model"]
             st.session_state.deployed_model = trained[dfm.iloc[0]["Model"]]["model"]
             st.success(f"✅ Training complete! Best model: **{dfm.iloc[0]['Model']}** (R² = {dfm.iloc[0]['R²']:.3f})")
- 
- 
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE: MODEL COMPARISON
 # ══════════════════════════════════════════════════════════════════════════════
 elif st.session_state.page == "Model Comparison":
     st.markdown('<div class="page-title">Model Comparison & Selection</div>', unsafe_allow_html=True)
     st.markdown('<div class="page-subtitle">Compare performance metrics and select the best model for deployment</div>', unsafe_allow_html=True)
- 
+
     if st.session_state.metrics is not None:
         rows = st.session_state.metrics.to_dict("records")
     else:
@@ -547,7 +552,7 @@ elif st.session_state.page == "Model Comparison":
             {"Model":"Gradient Boosting","R²":0.891,"RMSE":58190,"MAE":42780,"Time(s)":15.3},
         ], key=lambda x: -x["R²"])
     best = rows[0]
- 
+
     st.markdown(f"""
     <div class="best-banner">
         <div style="font-size:1rem;font-weight:700;margin-bottom:4px;">🏆 Best Performing Model</div>
@@ -557,13 +562,13 @@ elif st.session_state.page == "Model Comparison":
         <div style="font-size:0.8rem;color:#6b7280;margin-top:4px;">Recommended for production deployment based on overall performance metrics.</div>
     </div>
     """, unsafe_allow_html=True)
- 
+
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.markdown("**Performance Metrics Comparison**")
     hcols = st.columns([2.5,1.2,1.5,1.5,1.5,1])
     for hc, lbl in zip(hcols, ["Model","R² Score","RMSE","MAE","Training Time","Rank"]):
         hc.markdown(f"<span style='font-size:0.8rem;color:#6b7280;font-weight:600;'>{lbl}</span>", unsafe_allow_html=True)
- 
+
     rank_labels = ["#1 Best","#2","#3"]
     rank_colors = ["#10b981","#3b82f6","#9ca3af"]
     for i, row in enumerate(rows):
@@ -575,7 +580,7 @@ elif st.session_state.page == "Model Comparison":
         rc[4].markdown(f"<span style='font-size:0.88rem;'>{row['Time(s)']:.1f}s</span>", unsafe_allow_html=True)
         rc[5].markdown(f"<span style='background:{rank_colors[i]};color:#fff;border-radius:6px;padding:2px 8px;font-size:0.72rem;font-weight:600;'>{rank_labels[i]}</span>", unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
- 
+
     col_l, col_r = st.columns(2)
     with col_l:
         fig = px.bar(
@@ -587,7 +592,7 @@ elif st.session_state.page == "Model Comparison":
         fig.update_yaxes(range=[0.7,1.0], showgrid=True, gridcolor="#f3f4f6")
         fig.update_xaxes(showgrid=False)
         st.plotly_chart(fig, use_container_width=True)
- 
+
     with col_r:
         categories = ["Accuracy","Speed","Interpretability","Robustness","Scalability"]
         model_scores = {
@@ -607,7 +612,7 @@ elif st.session_state.page == "Model Comparison":
             height=300, margin=dict(t=40,b=20,l=10,r=10),
             font=dict(size=11), paper_bgcolor="white")
         st.plotly_chart(fig2, use_container_width=True)
- 
+
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.markdown("**Select Model for Deployment**")
     model_choice = st.radio(
@@ -626,22 +631,22 @@ elif st.session_state.page == "Model Comparison":
             st.session_state.deployed_model = st.session_state.models[model_choice]["model"]
         st.success(f"✅ {model_choice} deployed successfully!")
     st.markdown('</div>', unsafe_allow_html=True)
- 
- 
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE: PREDICTIONS
 # ══════════════════════════════════════════════════════════════════════════════
 elif st.session_state.page == "Predictions":
     st.markdown('<div class="page-title">Price Prediction</div>', unsafe_allow_html=True)
     st.markdown('<div class="page-subtitle">Use the deployed model to predict house prices for new properties</div>', unsafe_allow_html=True)
- 
+
     if st.session_state.metrics is not None:
         best_row    = st.session_state.metrics.iloc[0]
         active_r2   = best_row["R²"]
         active_rmse = best_row["RMSE"]
     else:
         active_r2, active_rmse = 0.891, 58190
- 
+
     st.markdown(f"""
     <div class="info-bar">
         <b>Active Model:</b> {st.session_state.best_model_name} &nbsp;|&nbsp;
@@ -649,30 +654,30 @@ elif st.session_state.page == "Predictions":
         <b>RMSE:</b> ${active_rmse:,.0f}
     </div>
     """, unsafe_allow_html=True)
- 
+
     st.markdown("**Property Details**")
     r1a, r1b, r1c = st.columns(3)
     bedrooms    = r1a.number_input("Bedrooms",    value=3,    min_value=1, max_value=10)
     bathrooms   = r1b.number_input("Bathrooms",   value=2.0,  min_value=0.5, max_value=8.0, step=0.5)
     sqft_living = r1c.number_input("Sqft Living", value=2000, min_value=200, max_value=15000, step=100)
- 
+
     r2a, r2b, r2c = st.columns(3)
     sqft_lot    = r2a.number_input("Sqft Lot",    value=5000, min_value=500,  max_value=100000, step=500)
     floors      = r2b.selectbox("Floors",         [1.0,1.5,2.0,2.5,3.0])
     waterfront  = r2c.selectbox("Waterfront",     ["No","Yes"])
- 
+
     r3a, r3b, r3c = st.columns(3)
     view        = r3a.number_input("View (0-4)",      value=0, min_value=0, max_value=4)
     condition   = r3b.number_input("Condition (1-5)", value=3, min_value=1, max_value=5)
     grade       = r3c.number_input("Grade (1-13)",    value=7, min_value=1, max_value=13)
- 
+
     r4a, r4b, r4c = st.columns(3)
     yr_built    = r4a.number_input("Year Built",     value=1990, min_value=1900, max_value=2024)
     yr_renov    = r4b.number_input("Year Renovated", value=0,    min_value=0,    max_value=2024)
     zipcode     = r4c.number_input("Zipcode",        value=98001)
- 
+
     st.markdown("<br>", unsafe_allow_html=True)
- 
+
     if st.button("🏠  Predict Price", type="primary", use_container_width=True):
         sample = {
             "bedrooms": bedrooms, "bathrooms": bathrooms, "sqft_living": sqft_living,
@@ -694,7 +699,7 @@ elif st.session_state.page == "Predictions":
                 pred_price = pricing_algorithm(sample)
         else:
             pred_price = pricing_algorithm(sample)
- 
+
         st.markdown(f"""
         <div class="pred-result">
             <div style="font-size:0.9rem;opacity:0.85;margin-bottom:4px;">Predicted Price</div>
@@ -703,7 +708,7 @@ elif st.session_state.page == "Predictions":
         """, unsafe_allow_html=True)
         desc = f"{int(bedrooms)} bed, {bathrooms} bath | {sqft_living:,} sqft"
         st.session_state.predictions_history.insert(0, {"desc": desc, "time": "Just now", "price": int(pred_price)})
- 
+
     st.markdown('<div class="card">', unsafe_allow_html=True)
     st.markdown("**Recent Predictions**")
     for p in st.session_state.predictions_history[:5]:
@@ -717,20 +722,25 @@ elif st.session_state.page == "Predictions":
         </div>
         """, unsafe_allow_html=True)
     st.markdown('</div>', unsafe_allow_html=True)
- 
- 
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE: DASHBOARD
 # ══════════════════════════════════════════════════════════════════════════════
 elif st.session_state.page == "Dashboard":
     st.markdown('<div class="page-title">Real Estate Trends Dashboard</div>', unsafe_allow_html=True)
     st.markdown('<div class="page-subtitle">Comprehensive analytics and market insights</div>', unsafe_allow_html=True)
- 
-    df = (st.session_state.df_clean or st.session_state.df or make_demo_df())
+
+    if st.session_state.df_clean is not None:
+        df = st.session_state.df_clean
+    elif st.session_state.df is not None:
+        df = st.session_state.df
+    else:
+        df = make_demo_df()
     avg_price  = df["price"].mean()      if "price"      in df.columns else 485320
     total_sales= len(df)
     price_sqft = (df["price"] / df["sqft_living"]).mean() if ("price" in df.columns and "sqft_living" in df.columns) else 225
- 
+
     kc1, kc2, kc3, kc4 = st.columns(4)
     for col, label, val, delta, delta_class, icon, bg in [
         (kc1,"Avg Price",         f"${avg_price:,.0f}",  "↗ +5.2%",  "pos","💲","#eff6ff"),
@@ -744,9 +754,9 @@ elif st.session_state.page == "Dashboard":
             <div class="metric-delta-{'pos' if delta_class=='pos' else 'neg'}">{delta}</div>
             <div class="metric-icon" style="background:{bg};">{icon}</div>
         </div>""", unsafe_allow_html=True)
- 
+
     st.markdown("<br>", unsafe_allow_html=True)
- 
+
     ch1, ch2 = st.columns(2)
     with ch1:
         months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]
@@ -761,7 +771,7 @@ elif st.session_state.page == "Dashboard":
         fig.update_yaxes(showgrid=True, gridcolor="#f3f4f6")
         fig.update_xaxes(showgrid=False)
         st.plotly_chart(fig, use_container_width=True)
- 
+
     with ch2:
         if "bedrooms" in df.columns and "price" in df.columns:
             br = df.groupby("bedrooms")["price"].mean().reset_index()
@@ -778,7 +788,7 @@ elif st.session_state.page == "Dashboard":
         fig2.update_xaxes(showgrid=False)
         fig2.update_yaxes(showgrid=True, gridcolor="#f3f4f6")
         st.plotly_chart(fig2, use_container_width=True)
- 
+
     ch3, ch4 = st.columns(2)
     with ch3:
         fig3 = px.pie(names=["Single Family","Condo","Multi-Family","Townhouse"],
@@ -787,7 +797,7 @@ elif st.session_state.page == "Dashboard":
         fig3.update_layout(height=320, margin=dict(t=40,b=20,l=10,r=10),
                            font=dict(size=11), paper_bgcolor="white")
         st.plotly_chart(fig3, use_container_width=True)
- 
+
     with ch4:
         if "zipcode" in df.columns and "price" in df.columns:
             zd = df.groupby("zipcode")["price"].mean().nlargest(5).reset_index()
@@ -803,7 +813,7 @@ elif st.session_state.page == "Dashboard":
         fig4.update_xaxes(showgrid=True, gridcolor="#f3f4f6")
         fig4.update_yaxes(showgrid=False)
         st.plotly_chart(fig4, use_container_width=True)
- 
+
     st.markdown("**Market Insights**")
     i1, i2, i3 = st.columns(3)
     for col, emoji, title, desc in [

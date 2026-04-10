@@ -9,6 +9,9 @@ import plotly.express as px
 import plotly.graph_objects as go
 import joblib
 import time
+import json
+import re
+from anthropic import Anthropic
 
 # ── Page config ────────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -129,6 +132,9 @@ for key, val in {
         {"desc": "4 bed, 3 bath | 2,400 sqft",  "time": "Predicted 25 minutes ago", "price": 685000},
         {"desc": "2 bed, 1.5 bath | 1,200 sqft","time": "Predicted 15 minutes ago", "price": 315000},
     ],
+    "chat_open": False,
+    "chat_messages": [],
+    "chat_input_key": 0,
 }.items():
     if key not in st.session_state:
         st.session_state[key] = val
@@ -830,3 +836,341 @@ elif st.session_state.page == "Dashboard":
             <div style="font-size:0.82rem;color:#374151;">{desc}</div>
         </div>
         """, unsafe_allow_html=True)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# FLOATING CHATBOT WIDGET
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── Load house data for chatbot ────────────────────────────────────────────────
+@st.cache_data
+def load_house_data():
+    try:
+        return pd.read_csv("house_data.csv")
+    except FileNotFoundError:
+        return None
+
+house_df = load_house_data()
+
+# ── Chatbot helpers ────────────────────────────────────────────────────────────
+def search_homes_chat(df, params):
+    mask = (
+        (df["price"]      >= params.get("min_price", 0)) &
+        (df["price"]      <= params.get("max_price", 9999999)) &
+        (df["bedrooms"]   >= params.get("min_beds", 0)) &
+        (df["bedrooms"]   <= params.get("max_beds", 20)) &
+        (df["bathrooms"]  >= params.get("min_baths", 0)) &
+        (df["grade"]      >= params.get("min_grade", 1)) &
+        (df["condition"]  >= params.get("min_condition", 1)) &
+        (df["sqft_living"]>= params.get("min_sqft", 0))
+    )
+    if params.get("waterfront") is True:
+        mask &= (df["waterfront"] == 1)
+    if params.get("zipcodes"):
+        mask &= df["zipcode"].isin(params["zipcodes"])
+    results = df[mask].sort_values("price").head(5)
+    return results
+
+def extract_search_json(text):
+    match = re.search(r'```json\s*(\{.*?\})\s*```', text, re.DOTALL)
+    if match:
+        try:
+            p = json.loads(match.group(1))
+            if p.get("search"):
+                return p
+        except Exception:
+            pass
+    return None
+
+def clean_chat_text(text):
+    return re.sub(r'```json\s*\{.*?\}\s*```', '', text, flags=re.DOTALL).strip()
+
+CHAT_SYSTEM = """You are a friendly AI real estate assistant for King County, WA (Seattle area).
+You help users find homes from a dataset of 21,613 real listings.
+
+Key data facts:
+- Price range: $75,000 – $7,700,000  |  Median: ~$450,000
+- Luxury zips: 98039 (avg $2.16M), 98004 (avg $1.36M), 98040 (avg $1.19M)
+- Affordable zips: 98001, 98002, 98003 (avg $250k–$320k)
+- Features: bedrooms 1–10, bathrooms, sqft, grade 1–13, condition 1–5, view 0–4, waterfront
+
+Keep replies SHORT (2–4 sentences). Ask 1–2 questions at a time to learn what they need.
+When you have enough info, output a search block on its own line:
+```json
+{"search": true, "min_price": 0, "max_price": 1000000, "min_beds": 1, "max_beds": 10, "min_baths": 0, "waterfront": null, "min_grade": 1, "min_condition": 1, "min_sqft": 0, "zipcodes": null}
+```
+After the JSON, briefly summarize what you're searching for."""
+
+# ── Floating button + popup CSS ────────────────────────────────────────────────
+st.markdown("""
+<style>
+/* Floating chat button */
+.chat-fab {
+    position: fixed;
+    bottom: 28px;
+    right: 28px;
+    width: 56px;
+    height: 56px;
+    background: #2563eb;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.5rem;
+    cursor: pointer;
+    box-shadow: 0 4px 20px rgba(37,99,235,0.4);
+    z-index: 9999;
+    transition: transform 0.2s, box-shadow 0.2s;
+    border: none;
+    color: white;
+}
+.chat-fab:hover {
+    transform: scale(1.08);
+    box-shadow: 0 6px 24px rgba(37,99,235,0.5);
+}
+.chat-badge {
+    position: absolute;
+    top: -3px;
+    right: -3px;
+    background: #ef4444;
+    color: #fff;
+    border-radius: 50%;
+    width: 18px;
+    height: 18px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Chat popup window */
+.chat-popup {
+    position: fixed;
+    bottom: 96px;
+    right: 28px;
+    width: 360px;
+    height: 500px;
+    background: #fff;
+    border-radius: 16px;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.18);
+    z-index: 9998;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid #e5e7eb;
+}
+
+/* Chat header */
+.chat-popup-header {
+    background: #2563eb;
+    color: #fff;
+    padding: 0.9rem 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+}
+.chat-popup-header .title {
+    font-weight: 700;
+    font-size: 0.92rem;
+}
+.chat-popup-header .subtitle {
+    font-size: 0.72rem;
+    opacity: 0.8;
+}
+
+/* Chat messages area */
+.chat-popup-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0.8rem;
+    background: #f9fafb;
+}
+.chat-bubble-user {
+    background: #2563eb;
+    color: #fff;
+    border-radius: 14px 14px 3px 14px;
+    padding: 0.5rem 0.75rem;
+    margin: 0.3rem 0 0.3rem 20%;
+    font-size: 0.82rem;
+    line-height: 1.45;
+    word-wrap: break-word;
+}
+.chat-bubble-bot {
+    background: #fff;
+    color: #111827;
+    border: 1px solid #e5e7eb;
+    border-radius: 14px 14px 14px 3px;
+    padding: 0.5rem 0.75rem;
+    margin: 0.3rem 20% 0.3rem 0;
+    font-size: 0.82rem;
+    line-height: 1.45;
+    word-wrap: break-word;
+}
+.chat-result-mini {
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 10px;
+    padding: 0.5rem 0.7rem;
+    margin: 0.2rem 0;
+    font-size: 0.78rem;
+    color: #1e40af;
+}
+
+/* Input area */
+.chat-popup-input {
+    border-top: 1px solid #e5e7eb;
+    padding: 0.6rem;
+    background: #fff;
+    flex-shrink: 0;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ── Toggle button ──────────────────────────────────────────────────────────────
+col_spacer, col_btn = st.columns([10, 1])
+with col_btn:
+    toggle_label = "✕" if st.session_state.chat_open else "🏡"
+    if st.button(toggle_label, key="chat_fab_toggle",
+                 help="Open AI House Finder Chat",
+                 type="primary"):
+        st.session_state.chat_open = not st.session_state.chat_open
+        st.rerun()
+
+# ── Custom FAB style override ──────────────────────────────────────────────────
+st.markdown("""
+<style>
+/* Style the toggle button as a FAB */
+[data-testid="stColumns"]:last-of-type [data-testid="stButton"] button {
+    position: fixed !important;
+    bottom: 28px !important;
+    right: 28px !important;
+    width: 56px !important;
+    height: 56px !important;
+    border-radius: 50% !important;
+    font-size: 1.4rem !important;
+    padding: 0 !important;
+    box-shadow: 0 4px 20px rgba(37,99,235,0.4) !important;
+    z-index: 9999 !important;
+    background: #2563eb !important;
+    color: white !important;
+    border: none !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ── Chat popup UI ──────────────────────────────────────────────────────────────
+if st.session_state.chat_open:
+    st.markdown("""
+    <style>
+    /* Popup container via fixed positioning */
+    div[data-testid="stVerticalBlock"] > div:has(> div[data-testid="stVerticalBlock"]):last-child {
+        position: fixed;
+        bottom: 96px;
+        right: 28px;
+        width: 360px;
+        max-height: 500px;
+        background: white;
+        border-radius: 16px;
+        box-shadow: 0 8px 40px rgba(0,0,0,0.18);
+        z-index: 9998;
+        border: 1px solid #e5e7eb;
+        overflow: hidden;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    # Header
+    st.markdown("""
+    <div style="background:#2563eb;color:#fff;padding:0.9rem 1rem;border-radius:12px 12px 0 0;">
+        <div style="font-weight:700;font-size:0.95rem;">🏡 AI House Finder</div>
+        <div style="font-size:0.72rem;opacity:0.85;">King County, WA · 21,613 listings</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Messages display
+    with st.container():
+        if not st.session_state.chat_messages:
+            st.markdown("""
+            <div style="padding:1rem;text-align:center;color:#6b7280;font-size:0.82rem;">
+                👋 Hi! Tell me your budget, bedrooms needed, and preferred area — I'll find your perfect home!
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            msgs_html = ""
+            for msg in st.session_state.chat_messages[-10:]:
+                content = clean_chat_text(msg["content"]) if msg["role"] == "assistant" else msg["content"]
+                if msg["role"] == "user":
+                    msgs_html += f'<div class="chat-bubble-user">{content}</div>'
+                else:
+                    # Check if there are search results to show
+                    if msg.get("results"):
+                        for r in msg["results"]:
+                            msgs_html += f'<div class="chat-result-mini">🏠 ${r["price"]:,.0f} · {int(r["beds"])}bd/{r["baths"]}ba · {int(r["sqft"]):,}sqft · Zip {int(r["zip"])}</div>'
+                    if content:
+                        msgs_html += f'<div class="chat-bubble-bot">{content}</div>'
+            st.markdown(f'<div style="max-height:280px;overflow-y:auto;padding:0.6rem;background:#f9fafb;border-radius:0;">{msgs_html}</div>', unsafe_allow_html=True)
+
+    # Input
+    user_chat = st.text_input(
+        "Message",
+        placeholder="e.g. 3 beds under $500k with a view...",
+        label_visibility="collapsed",
+        key=f"chat_input_{st.session_state.chat_input_key}",
+    )
+
+    col_send, col_clear = st.columns([3, 1])
+    with col_send:
+        send = st.button("Send →", key="chat_send", type="primary", use_container_width=True)
+    with col_clear:
+        if st.button("Clear", key="chat_clear", use_container_width=True):
+            st.session_state.chat_messages = []
+            st.session_state.chat_input_key += 1
+            st.rerun()
+
+    if send and user_chat.strip():
+        st.session_state.chat_messages.append({"role": "user", "content": user_chat.strip()})
+
+        # Call Claude
+        try:
+            client = Anthropic()
+            api_msgs = [{"role": m["role"], "content": m["content"]}
+                        for m in st.session_state.chat_messages]
+            resp = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=600,
+                system=CHAT_SYSTEM,
+                messages=api_msgs,
+            )
+            ai_text = resp.content[0].text
+
+            # Search if params found
+            result_list = []
+            params = extract_search_json(ai_text)
+            if params and house_df is not None:
+                hits = search_homes_chat(house_df, params)
+                for _, row in hits.iterrows():
+                    result_list.append({
+                        "price": row["price"], "beds": row["bedrooms"],
+                        "baths": row["bathrooms"], "sqft": row["sqft_living"],
+                        "zip": row["zipcode"],
+                    })
+
+            st.session_state.chat_messages.append({
+                "role": "assistant",
+                "content": ai_text,
+                "results": result_list,
+            })
+        except Exception as e:
+            st.session_state.chat_messages.append({
+                "role": "assistant",
+                "content": f"Sorry, I ran into an error: {str(e)}",
+                "results": [],
+            })
+
+        st.session_state.chat_input_key += 1
+        st.rerun()

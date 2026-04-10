@@ -1146,7 +1146,7 @@ if st.session_state.chat_open:
                 for m in st.session_state.chat_messages
             ]
             resp = client.chat.completions.create(
-                model="llama3-70b-8192",
+                model="llama-3.3-70b-versatile",
                 max_tokens=600,
                 messages=api_msgs,
             )

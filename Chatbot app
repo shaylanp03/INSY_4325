@@ -1,0 +1,446 @@
+import streamlit as st
+import pandas as pd
+import numpy as np
+import json
+import re
+from anthropic import Anthropic
+
+# ── Page config ────────────────────────────────────────────────────────────────
+st.set_page_config(
+    page_title="AI House Finder",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+# ── CSS ────────────────────────────────────────────────────────────────────────
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+#MainMenu { visibility: hidden; }
+footer    { visibility: hidden; }
+header    { visibility: hidden; }
+
+[data-testid="stSidebar"] {
+    background: #ffffff;
+    border-right: 1px solid #e5e7eb;
+    min-width: 280px !important;
+    max-width: 280px !important;
+}
+[data-testid="stSidebar"] .block-container { padding: 1.5rem 1rem; }
+.main .block-container { padding: 1.5rem 2rem; max-width: 900px; }
+
+/* Chat bubbles */
+.msg-user {
+    background: #2563eb;
+    color: #fff;
+    border-radius: 18px 18px 4px 18px;
+    padding: 0.75rem 1.1rem;
+    margin: 0.4rem 0 0.4rem 20%;
+    font-size: 0.92rem;
+    line-height: 1.5;
+}
+.msg-assistant {
+    background: #f3f4f6;
+    color: #111827;
+    border-radius: 18px 18px 18px 4px;
+    padding: 0.75rem 1.1rem;
+    margin: 0.4rem 20% 0.4rem 0;
+    font-size: 0.92rem;
+    line-height: 1.5;
+}
+.msg-label-user {
+    text-align: right;
+    font-size: 0.72rem;
+    color: #9ca3af;
+    margin-bottom: 2px;
+    padding-right: 4px;
+}
+.msg-label-assistant {
+    font-size: 0.72rem;
+    color: #9ca3af;
+    margin-bottom: 2px;
+    padding-left: 4px;
+}
+
+/* House result card */
+.house-card {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    padding: 1rem 1.2rem;
+    margin: 0.5rem 0;
+}
+.house-price {
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: #2563eb;
+}
+.house-detail {
+    font-size: 0.82rem;
+    color: #6b7280;
+    margin-top: 4px;
+}
+.badge {
+    display: inline-block;
+    background: #eff6ff;
+    color: #2563eb;
+    border-radius: 6px;
+    padding: 2px 8px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    margin-right: 4px;
+    margin-top: 4px;
+}
+.badge-green {
+    background: #f0fdf4;
+    color: #16a34a;
+}
+.badge-orange {
+    background: #fff7ed;
+    color: #ea580c;
+}
+
+/* Sidebar filter card */
+.filter-header {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin: 1rem 0 0.4rem;
+}
+
+/* Stat chips */
+.stat-chip {
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 0.5rem 0.8rem;
+    font-size: 0.82rem;
+    margin-bottom: 0.4rem;
+}
+.stat-chip b { color: #111827; }
+
+.page-title { font-size: 1.5rem; font-weight: 700; color: #111827; }
+.page-sub   { font-size: 0.88rem; color: #6b7280; margin-bottom: 1rem; }
+</style>
+""", unsafe_allow_html=True)
+
+# ── Load data ──────────────────────────────────────────────────────────────────
+@st.cache_data
+def load_data():
+    try:
+        df = pd.read_csv("house_data.csv")
+    except FileNotFoundError:
+        # fallback: try uploaded path
+        df = pd.read_csv("/mnt/user-data/uploads/house_data.csv")
+    df["price"] = pd.to_numeric(df["price"], errors="coerce")
+    df = df.dropna(subset=["price"])
+    df["zipcode"] = df["zipcode"].astype(int)
+    return df
+
+df = load_data()
+
+# ── Pre-compute dataset context for the AI ─────────────────────────────────────
+@st.cache_data
+def build_context(df):
+    zip_stats = (
+        df.groupby("zipcode")["price"]
+        .agg(avg_price="mean", count="count")
+        .reset_index()
+        .sort_values("avg_price")
+    )
+    budget_buckets = {
+        "under_300k":  int((df["price"] <  300000).sum()),
+        "300k_500k":   int(((df["price"] >= 300000) & (df["price"] < 500000)).sum()),
+        "500k_800k":   int(((df["price"] >= 500000) & (df["price"] < 800000)).sum()),
+        "800k_1m":     int(((df["price"] >= 800000) & (df["price"] < 1000000)).sum()),
+        "over_1m":     int((df["price"] >= 1000000).sum()),
+    }
+    return {
+        "total_listings": len(df),
+        "price_min": int(df["price"].min()),
+        "price_max": int(df["price"].max()),
+        "price_avg": int(df["price"].mean()),
+        "price_median": int(df["price"].median()),
+        "zipcodes": sorted(df["zipcode"].unique().tolist()),
+        "bedrooms_available": sorted(df["bedrooms"].unique().tolist()),
+        "budget_buckets": budget_buckets,
+        "top_luxury_zips": zip_stats.nlargest(5, "avg_price")[["zipcode","avg_price","count"]].to_dict("records"),
+        "top_affordable_zips": zip_stats.nsmallest(5, "avg_price")[["zipcode","avg_price","count"]].to_dict("records"),
+        "waterfront_count": int((df["waterfront"] == 1).sum()),
+        "has_basement_count": int((df["sqft_basement"] > 0).sum()),
+    }
+
+data_context = build_context(df)
+
+# ── Session state ──────────────────────────────────────────────────────────────
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+if "filters" not in st.session_state:
+    st.session_state.filters = {}
+if "results" not in st.session_state:
+    st.session_state.results = pd.DataFrame()
+
+client = Anthropic()
+
+# ── System prompt ──────────────────────────────────────────────────────────────
+SYSTEM_PROMPT = f"""You are an expert AI real estate assistant helping users find their perfect home in the King County, Washington area (Seattle metro).
+
+You have access to a real estate dataset with {data_context['total_listings']:,} listings. Here is a summary:
+
+DATASET OVERVIEW:
+- Price range: ${data_context['price_min']:,} to ${data_context['price_max']:,}
+- Average price: ${data_context['price_avg']:,}
+- Median price: ${data_context['price_median']:,}
+- Available bedrooms: {data_context['bedrooms_available']}
+- Total waterfront properties: {data_context['waterfront_count']}
+
+BUDGET DISTRIBUTION:
+- Under $300k: {data_context['budget_buckets']['under_300k']:,} homes
+- $300k–$500k: {data_context['budget_buckets']['300k_500k']:,} homes
+- $500k–$800k: {data_context['budget_buckets']['500k_800k']:,} homes
+- $800k–$1M:   {data_context['budget_buckets']['800k_1m']:,} homes
+- Over $1M:    {data_context['budget_buckets']['over_1m']:,} homes
+
+TOP LUXURY ZIPCODES (highest avg price):
+{json.dumps(data_context['top_luxury_zips'], indent=2)}
+
+MOST AFFORDABLE ZIPCODES (lowest avg price):
+{json.dumps(data_context['top_affordable_zips'], indent=2)}
+
+ALL AVAILABLE ZIPCODES: {data_context['zipcodes']}
+
+PROPERTY FEATURES:
+- Grade: 1–13 (7 = average, 10+ = high quality, 13 = luxury)
+- Condition: 1–5 (1 = poor, 5 = excellent)
+- View: 0–4 (0 = none, 4 = excellent)
+- Waterfront: 0 = no, 1 = yes
+- Floors: 1, 1.5, 2, 2.5, 3
+- sqft_basement > 0 means it has a basement
+
+YOUR JOB:
+1. Have a friendly, helpful conversation to understand what the user is looking for
+2. Ask about: budget, number of bedrooms/bathrooms, preferred location/zipcode, must-have features (waterfront, view, basement, etc.), condition/grade preferences
+3. When you have enough info, output a JSON search block so the app can filter real listings
+4. Give thoughtful neighborhood advice based on the zipcode data above
+5. Be specific with price ranges and area knowledge
+
+WHEN READY TO SEARCH, output this exact JSON block (always on its own line):
+```json
+{{"search": true, "min_price": 0, "max_price": 1000000, "min_beds": 1, "max_beds": 10, "min_baths": 0, "max_baths": 10, "waterfront": null, "min_grade": 1, "max_grade": 13, "min_condition": 1, "min_view": 0, "zipcodes": null, "min_sqft": 0, "max_sqft": 99999, "has_basement": null}}
+```
+- Set zipcodes to a list like [98004, 98005] or null for any
+- Set waterfront to true/false or null for any
+- Set has_basement to true/false or null for any
+- Always include ALL fields
+
+After the JSON, summarize what you searched for and give neighborhood advice.
+
+Keep responses concise and friendly. Use bullet points for lists. Ask one or two questions at a time, not all at once."""
+
+# ── Search function ────────────────────────────────────────────────────────────
+def search_homes(df, params):
+    mask = (
+        (df["price"]     >= params.get("min_price", 0)) &
+        (df["price"]     <= params.get("max_price", 9999999)) &
+        (df["bedrooms"]  >= params.get("min_beds", 0)) &
+        (df["bedrooms"]  <= params.get("max_beds", 20)) &
+        (df["bathrooms"] >= params.get("min_baths", 0)) &
+        (df["bathrooms"] <= params.get("max_baths", 20)) &
+        (df["grade"]     >= params.get("min_grade", 1)) &
+        (df["grade"]     <= params.get("max_grade", 13)) &
+        (df["condition"] >= params.get("min_condition", 1)) &
+        (df["view"]      >= params.get("min_view", 0)) &
+        (df["sqft_living"] >= params.get("min_sqft", 0)) &
+        (df["sqft_living"] <= params.get("max_sqft", 99999))
+    )
+    if params.get("waterfront") is True:
+        mask &= (df["waterfront"] == 1)
+    if params.get("has_basement") is True:
+        mask &= (df["sqft_basement"] > 0)
+    if params.get("zipcodes"):
+        mask &= df["zipcode"].isin(params["zipcodes"])
+    return df[mask].sort_values("price").reset_index(drop=True)
+
+def extract_search_params(text):
+    """Extract JSON search block from assistant response."""
+    match = re.search(r'```json\s*(\{.*?\})\s*```', text, re.DOTALL)
+    if match:
+        try:
+            params = json.loads(match.group(1))
+            if params.get("search"):
+                return params
+        except Exception:
+            pass
+    return None
+
+def clean_response(text):
+    """Remove the JSON block from display text."""
+    return re.sub(r'```json\s*\{.*?\}\s*```', '', text, flags=re.DOTALL).strip()
+
+# ── Sidebar ────────────────────────────────────────────────────────────────────
+with st.sidebar:
+    st.markdown("""
+    <div style="margin-bottom:1rem;">
+        <div style="font-size:1.1rem;font-weight:700;color:#2563eb;">🏡 AI House Finder</div>
+        <div style="font-size:0.75rem;color:#6b7280;">King County, WA · 21,613 listings</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # Quick stats
+    st.markdown('<div class="filter-header">Dataset Stats</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="stat-chip">💰 Avg Price: <b>${data_context["price_avg"]:,}</b></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="stat-chip">🏠 Total Homes: <b>{data_context["total_listings"]:,}</b></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="stat-chip">🌊 Waterfront: <b>{data_context["waterfront_count"]}</b></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="stat-chip">📍 Zipcodes: <b>{len(data_context["zipcodes"])}</b></div>', unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # Current search filters display
+    if st.session_state.filters:
+        st.markdown('<div class="filter-header">Current Search Filters</div>', unsafe_allow_html=True)
+        f = st.session_state.filters
+        if f.get("min_price") or f.get("max_price"):
+            st.markdown(f'<div class="stat-chip">💲 ${f.get("min_price",0):,} – ${f.get("max_price",9999999):,}</div>', unsafe_allow_html=True)
+        if f.get("min_beds"):
+            st.markdown(f'<div class="stat-chip">🛏 {f.get("min_beds")}–{f.get("max_beds",10)} beds</div>', unsafe_allow_html=True)
+        if f.get("waterfront"):
+            st.markdown('<div class="stat-chip">🌊 Waterfront only</div>', unsafe_allow_html=True)
+        if f.get("zipcodes"):
+            st.markdown(f'<div class="stat-chip">📍 Zips: {f["zipcodes"]}</div>', unsafe_allow_html=True)
+        if not st.session_state.results.empty:
+            st.markdown(f'<div class="stat-chip">✅ <b>{len(st.session_state.results)}</b> matches found</div>', unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # Quick start prompts
+    st.markdown('<div class="filter-header">Quick Start</div>', unsafe_allow_html=True)
+    prompts = [
+        "I'm looking for a family home under $600k",
+        "Show me waterfront properties",
+        "I want a luxury home with great views",
+        "Find me affordable homes under $350k",
+        "What are the best neighborhoods?",
+    ]
+    for p in prompts:
+        if st.button(p, key=f"quick_{p}", use_container_width=True):
+            st.session_state.messages.append({"role": "user", "content": p})
+            st.rerun()
+
+    st.markdown("---")
+    if st.button("🗑️ Clear Chat", use_container_width=True):
+        st.session_state.messages = []
+        st.session_state.filters  = {}
+        st.session_state.results  = pd.DataFrame()
+        st.rerun()
+
+# ── Main UI ────────────────────────────────────────────────────────────────────
+st.markdown('<div class="page-title">🏡 AI House Finder</div>', unsafe_allow_html=True)
+st.markdown('<div class="page-sub">Chat with your AI real estate assistant to find your perfect home in King County, WA</div>', unsafe_allow_html=True)
+
+# Display search results if available
+if not st.session_state.results.empty:
+    results = st.session_state.results
+    st.markdown(f"### 🔍 {len(results):,} Matching Properties Found")
+
+    # Summary metrics
+    mc1, mc2, mc3, mc4 = st.columns(4)
+    mc1.metric("Avg Price",   f"${results['price'].mean():,.0f}")
+    mc2.metric("Min Price",   f"${results['price'].min():,.0f}")
+    mc3.metric("Max Price",   f"${results['price'].max():,.0f}")
+    mc4.metric("Avg Sqft",    f"{results['sqft_living'].mean():,.0f}")
+
+    # Show top 10 results
+    st.markdown("**Top Matches** (sorted by price)")
+    show_n = min(10, len(results))
+    for i, row in results.head(show_n).iterrows():
+        wf_badge  = '<span class="badge badge-green">🌊 Waterfront</span>' if row["waterfront"] == 1 else ""
+        bsmt_badge= '<span class="badge badge-orange">🏚 Basement</span>'  if row["sqft_basement"] > 0 else ""
+        view_badge= f'<span class="badge">👁 View: {int(row["view"])}</span>' if row["view"] > 0 else ""
+        yr_renov  = f' · Renovated {int(row["yr_renovated"])}' if row["yr_renovated"] > 0 else ""
+
+        st.markdown(f"""
+        <div class="house-card">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+                <div>
+                    <div class="house-price">${row['price']:,.0f}</div>
+                    <div class="house-detail">
+                        🛏 {int(row['bedrooms'])} beds &nbsp;·&nbsp;
+                        🚿 {row['bathrooms']} baths &nbsp;·&nbsp;
+                        📐 {int(row['sqft_living']):,} sqft &nbsp;·&nbsp;
+                        📍 Zip: {int(row['zipcode'])} &nbsp;·&nbsp;
+                        🏗 Built {int(row['yr_built'])}{yr_renov}
+                    </div>
+                    <div style="margin-top:6px;">
+                        <span class="badge">Grade {int(row['grade'])}/13</span>
+                        <span class="badge">Condition {int(row['condition'])}/5</span>
+                        {wf_badge}{bsmt_badge}{view_badge}
+                    </div>
+                </div>
+                <div style="text-align:right;font-size:0.8rem;color:#9ca3af;">
+                    Lot: {int(row['sqft_lot']):,} sqft<br>
+                    {row['floors']} floor{'s' if row['floors']>1 else ''}
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    if len(results) > 10:
+        st.markdown(f"<div style='text-align:center;color:#6b7280;font-size:0.85rem;padding:0.5rem;'>... and {len(results)-10:,} more matching properties. Refine your search in the chat to narrow down results.</div>", unsafe_allow_html=True)
+
+    st.markdown("---")
+
+# ── Chat history ───────────────────────────────────────────────────────────────
+if not st.session_state.messages:
+    st.markdown("""
+    <div style="text-align:center;padding:2rem;color:#6b7280;">
+        <div style="font-size:2rem;margin-bottom:0.5rem;">👋</div>
+        <div style="font-size:1rem;font-weight:600;color:#374151;margin-bottom:0.4rem;">Hi! I'm your AI house hunting assistant.</div>
+        <div style="font-size:0.88rem;">Tell me what you're looking for — budget, bedrooms, neighborhood, must-haves — and I'll find the best matches from 21,613 real listings.</div>
+    </div>
+    """, unsafe_allow_html=True)
+else:
+    for msg in st.session_state.messages:
+        role  = msg["role"]
+        content = msg["content"]
+        if role == "user":
+            st.markdown(f'<div class="msg-label-user">You</div><div class="msg-user">{content}</div>', unsafe_allow_html=True)
+        else:
+            display_text = clean_response(content)
+            if display_text:
+                st.markdown(f'<div class="msg-label-assistant">🏡 AI Assistant</div><div class="msg-assistant">{display_text}</div>', unsafe_allow_html=True)
+
+# ── Chat input & AI response ───────────────────────────────────────────────────
+user_input = st.chat_input("Describe your dream home… e.g. '3 bed under $500k with a view'")
+
+if user_input:
+    st.session_state.messages.append({"role": "user", "content": user_input})
+
+    # Build messages for API
+    api_messages = [
+        {"role": m["role"], "content": m["content"]}
+        for m in st.session_state.messages
+    ]
+
+    with st.spinner("Thinking…"):
+        response = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1000,
+            system=SYSTEM_PROMPT,
+            messages=api_messages,
+        )
+        assistant_text = response.content[0].text
+
+    # Check for search params
+    params = extract_search_params(assistant_text)
+    if params:
+        results = search_homes(df, params)
+        st.session_state.filters = params
+        st.session_state.results = results
+
+    st.session_state.messages.append({"role": "assistant", "content": assistant_text})
+    st.rerun()

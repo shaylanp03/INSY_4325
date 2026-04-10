@@ -186,11 +186,11 @@ def pricing_algorithm(row):
     age_dep       = max(0.85, 1 - age * 0.003)
     renov_bonus   = 1.05 if row.get("yr_renovated", 0) > 0 else 1.0
     price         = (base + bedrooms_adj + baths_adj) * grade_mul * waterfront_mul * age_dep * renov_bonus
-    return price * np.random.uniform(0.97, 1.03)
+    return price
 
-# ══════════════════════════════════════════════════════════════════════════════
+
 # PAGE: HOME
-# ══════════════════════════════════════════════════════════════════════════════
+
 if st.session_state.page == "Home":
     st.markdown("""
     <div style="text-align:center;padding:2rem 0 1.5rem;">
@@ -278,9 +278,9 @@ if st.session_state.page == "Home":
     """, unsafe_allow_html=True)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+
 # PAGE: DATA UPLOAD
-# ══════════════════════════════════════════════════════════════════════════════
+
 elif st.session_state.page == "Data Upload":
     st.markdown('<div class="page-title">Data Upload & Management</div>', unsafe_allow_html=True)
     st.markdown('<div class="page-subtitle">Upload your real estate dataset from Kaggle (CSV format)</div>', unsafe_allow_html=True)
@@ -326,9 +326,9 @@ elif st.session_state.page == "Data Upload":
     """, unsafe_allow_html=True)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+
 # PAGE: DATA CLEANING
-# ══════════════════════════════════════════════════════════════════════════════
+
 elif st.session_state.page == "Data Cleaning":
     st.markdown('<div class="page-title">Data Cleaning & Visualization</div>', unsafe_allow_html=True)
     st.markdown('<div class="page-subtitle">Preprocess and explore your real estate dataset</div>', unsafe_allow_html=True)
@@ -451,9 +451,9 @@ elif st.session_state.page == "Data Cleaning":
             """, unsafe_allow_html=True)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+
 # PAGE: MODEL TRAINING
-# ══════════════════════════════════════════════════════════════════════════════
+
 elif st.session_state.page == "Model Training":
     st.markdown('<div class="page-title">Model Training</div>', unsafe_allow_html=True)
     st.markdown('<div class="page-subtitle">Train and evaluate 3 different machine learning algorithms</div>', unsafe_allow_html=True)
@@ -536,9 +536,9 @@ elif st.session_state.page == "Model Training":
             st.success(f"✅ Training complete! Best model: **{dfm.iloc[0]['Model']}** (R² = {dfm.iloc[0]['R²']:.3f})")
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+
 # PAGE: MODEL COMPARISON
-# ══════════════════════════════════════════════════════════════════════════════
+
 elif st.session_state.page == "Model Comparison":
     st.markdown('<div class="page-title">Model Comparison & Selection</div>', unsafe_allow_html=True)
     st.markdown('<div class="page-subtitle">Compare performance metrics and select the best model for deployment</div>', unsafe_allow_html=True)
@@ -633,9 +633,9 @@ elif st.session_state.page == "Model Comparison":
     st.markdown('</div>', unsafe_allow_html=True)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
+
 # PAGE: PREDICTIONS
-# ══════════════════════════════════════════════════════════════════════════════
+
 elif st.session_state.page == "Predictions":
     st.markdown('<div class="page-title">Price Prediction</div>', unsafe_allow_html=True)
     st.markdown('<div class="page-subtitle">Use the deployed model to predict house prices for new properties</div>', unsafe_allow_html=True)
@@ -724,9 +724,8 @@ elif st.session_state.page == "Predictions":
     st.markdown('</div>', unsafe_allow_html=True)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
 # PAGE: DASHBOARD
-# ══════════════════════════════════════════════════════════════════════════════
+
 elif st.session_state.page == "Dashboard":
     st.markdown('<div class="page-title">Real Estate Trends Dashboard</div>', unsafe_allow_html=True)
     st.markdown('<div class="page-subtitle">Comprehensive analytics and market insights</div>', unsafe_allow_html=True)

@@ -11,7 +11,7 @@ import joblib
 import time
 import json
 import re
-from anthropic import Anthropic
+from groq import Groq
 
 # ── Page config ────────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -1135,18 +1135,22 @@ if st.session_state.chat_open:
     if send and user_chat.strip():
         st.session_state.chat_messages.append({"role": "user", "content": user_chat.strip()})
 
-        # Call Claude
+        # Call Groq
         try:
-            client = Anthropic()
-            api_msgs = [{"role": m["role"], "content": m["content"]}
-                        for m in st.session_state.chat_messages]
-            resp = client.messages.create(
-                model="claude-sonnet-4-20250514",
+            api_key = st.secrets.get("GROQ_API_KEY", None)
+            if not api_key:
+                raise ValueError("GROQ_API_KEY not found in Streamlit secrets. Go to App Settings → Secrets and add it.")
+            client = Groq(api_key=api_key)
+            api_msgs = [{"role": "system", "content": CHAT_SYSTEM}] + [
+                {"role": m["role"], "content": m["content"]}
+                for m in st.session_state.chat_messages
+            ]
+            resp = client.chat.completions.create(
+                model="llama3-70b-8192",
                 max_tokens=600,
-                system=CHAT_SYSTEM,
                 messages=api_msgs,
             )
-            ai_text = resp.content[0].text
+            ai_text = resp.choices[0].message.content
 
             # Search if params found
             result_list = []
